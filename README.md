@@ -1,20 +1,35 @@
-# Vien Creations — Coaster Designer (Phase 1)
+# Vien Creations — Coaster Designer
 
-A standalone personalization canvas for a single laser-engraved product: a
-90×90mm coaster. React + Vite + Fabric.js, no backend — everything runs
-client-side and exports trigger a browser download.
+A personalization canvas for a single laser-engraved product: a 90×90mm
+coaster. React + Vite + Fabric.js frontend, with a small Express/SQLite
+backend that saves finished designs and hands back a reference code.
 
 ## Run it
 
+Two servers, in two terminals.
+
+**Backend** (`/server`):
+```bash
+cd server
+npm install
+npm run dev
+```
+Listens on `http://localhost:3001`. Creates `server/data/designs.db`
+(SQLite) and `server/storage/{reference_code}/` on demand — nothing to set
+up by hand.
+
+**Frontend** (project root):
 ```bash
 npm install
 npm run dev
 ```
-
-Then open the printed `localhost` URL.
+Open the printed `localhost` URL (usually `http://localhost:5173`). Vite
+proxies `/api` and `/storage` requests to the backend in dev, so no CORS
+config is needed locally.
 
 ## What's here
 
+### Frontend
 - **Coaster canvas** at 90×90mm (rendered at 8px/mm), wood-tone mockup
   background, dashed engraving-safe zone inset 5mm from the edge.
 - **Text**: add editable text, 6 engraving-friendly fonts (5 sans/serif +
@@ -26,15 +41,43 @@ Then open the printed `localhost` URL.
   non-blocking visual warning (the safe-zone outline turns red + a banner
   appears) rather than being clamped.
 - **Canvas controls**: undo/redo, clear/start over, zoom in/out.
-- **Export** (`src/utils/exportCanvas.js`): high-res (~300 DPI) PNG preview
-  with the product mockup background, and a production-oriented SVG (design
-  elements only, no mockup/guides). A 6-character reference code is
-  generated on every export and shown on screen. See the code comments in
-  that file for the vector-export limitation around raster images.
+- **Save design** (`src/utils/exportCanvas.js`, `src/utils/api.js`): on
+  confirm, generates a high-res (~300 DPI) preview PNG and a
+  production-oriented SVG (design elements only, no mockup/guides — see
+  code comments for the vector-export limitation around raster images),
+  then uploads both to the backend. Shows a loading state while saving, a
+  large on-screen reference code on success, and a retry-friendly error
+  banner on failure — the design is never lost if the save fails.
+
+### Backend (`/server`)
+- Express + `better-sqlite3`, files stored on local disk under
+  `server/storage/{reference_code}/`. Own `package.json` so it can be
+  deployed independently of the frontend later.
+- `POST /api/designs` — multipart upload (`preview`, `production` files +
+  `product_type` field). Generates a 6-character reference code (checked
+  against the DB for collisions, regenerating if needed), saves the files,
+  inserts a `designs` row, returns `{ reference_code }`.
+- `GET /api/designs/:code` — returns the stored record (paths + metadata).
+  Not used by the frontend yet — this is for the Phase 4 review workflow.
+- `designs` table: `reference_code` (PK), `product_type`, `preview_path`,
+  `production_path`, `status` (defaults `pending_review`), `created_at`.
+- **Storage is local disk**, fine for a single always-on dev/host box. If
+  this ever moves to a host with an ephemeral filesystem (serverless,
+  most container platforms' default deploys), saved files will disappear
+  on restart/redeploy — see the comment in `server/src/config.js`. Not a
+  concern yet, just flagged before it bites someone.
+
+### Verifying a save independently
+```bash
+# from server/
+node -e "console.log(require('better-sqlite3')('./data/designs.db').prepare('SELECT * FROM designs').all())"
+curl http://localhost:3001/api/designs/<CODE>
+```
 
 ## Notes
 
 - Fonts load from Google Fonts (`index.html`); without network access they
   fall back to the generic sans-serif/serif/cursive stack, which is fine for
   local dev without internet.
-- This is Phase 1: one product, no e-commerce/cart/checkout, no backend.
+- Still one product, no e-commerce/cart/checkout, no admin UI — those are
+  later phases.
