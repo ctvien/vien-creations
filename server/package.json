@@ -1,0 +1,19 @@
+{
+  "name": "vien-creations-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Design storage backend for the Vien Creations coaster configurator",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "multer": "^2.2.0"
+  }
+}

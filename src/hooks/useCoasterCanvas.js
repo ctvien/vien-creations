@@ -11,10 +11,11 @@ import {
   HISTORY_LIMIT,
   DEFAULT_FONT,
   DEFAULT_FONT_SIZE,
+  PRODUCT_TYPE,
 } from '../constants';
 import { getEffectiveDPI } from '../utils/dpi';
-import { exportPreviewPNG, exportProductionSVG } from '../utils/exportCanvas';
-import { generateReferenceCode } from '../utils/referenceCode';
+import { generatePreviewPNGBlob, generateProductionSVGBlob } from '../utils/exportCanvas';
+import { submitDesign, DesignSubmitError } from '../utils/api';
 
 const SAFE_ZONE_PX = SAFE_ZONE_INSET_MM * SCREEN_PX_PER_MM;
 const SAFE_ZONE_SIZE_PX = CANVAS_SIZE_PX - SAFE_ZONE_PX * 2;
@@ -46,8 +47,10 @@ export function useCoasterCanvas(canvasElRef) {
   const [canRedo, setCanRedo] = useState(false);
   const [lowResWarning, setLowResWarning] = useState(false);
   const [outOfBoundsWarning, setOutOfBoundsWarning] = useState(false);
+  const [hasContent, setHasContent] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | success | error
+  const [saveError, setSaveError] = useState(null);
   const [referenceCode, setReferenceCode] = useState(null);
-  const [lastExport, setLastExport] = useState(null);
 
   const isDesignObject = (obj) => obj && !obj.isGuide;
 
@@ -61,6 +64,7 @@ export function useCoasterCanvas(canvasElRef) {
     );
     setOutOfBoundsWarning(anyOutOfBounds);
     setLowResWarning(anyLowRes);
+    setHasContent(designObjects.length > 0);
     if (safeZoneRef.current) {
       safeZoneRef.current.set({
         stroke: anyOutOfBounds ? '#e2543a' : 'rgba(255,255,255,0.75)',
@@ -318,6 +322,9 @@ export function useCoasterCanvas(canvasElRef) {
     canvas.discardActiveObject();
     canvas.getObjects().filter(isDesignObject).forEach((o) => canvas.remove(o));
     canvas.requestRenderAll();
+    setSaveStatus('idle');
+    setSaveError(null);
+    setReferenceCode(null);
   }, []);
 
   const setZoomClamped = useCallback((next) => {
@@ -353,28 +360,37 @@ export function useCoasterCanvas(canvasElRef) {
     pushHistory();
   }, [pushHistory]);
 
-  const exportPNG = useCallback(() => {
+  // Generates the preview PNG + production SVG and hands them to the backend,
+  // which owns reference-code generation (so it can guarantee uniqueness
+  // against every design ever saved, not just this browser tab). Safe to
+  // call again after a failure — nothing about a failed attempt is
+  // persisted client- or server-side, so retrying just re-submits.
+  const confirmDesign = useCallback(async () => {
     const canvas = fabricRef.current;
-    if (!canvas) return null;
-    const code = generateReferenceCode();
-    const dataUrl = exportPreviewPNG(canvas, { safeZoneRect: safeZoneRef.current }, code);
-    setReferenceCode(code);
-    setLastExport({ type: 'png', code });
-    return dataUrl;
-  }, []);
-
-  const exportSVG = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return null;
-    const code = generateReferenceCode();
-    const svg = exportProductionSVG(
-      canvas,
-      { backgroundRect: backgroundRef.current, safeZoneRect: safeZoneRef.current },
-      code
-    );
-    setReferenceCode(code);
-    setLastExport({ type: 'svg', code });
-    return svg;
+    if (!canvas) return;
+    setSaveStatus('saving');
+    setSaveError(null);
+    try {
+      const previewBlob = generatePreviewPNGBlob(canvas, { safeZoneRect: safeZoneRef.current });
+      const productionBlob = generateProductionSVGBlob(canvas, {
+        backgroundRect: backgroundRef.current,
+        safeZoneRect: safeZoneRef.current,
+      });
+      const code = await submitDesign({
+        previewBlob,
+        productionBlob,
+        productType: PRODUCT_TYPE,
+      });
+      setReferenceCode(code);
+      setSaveStatus('success');
+    } catch (err) {
+      setSaveError(
+        err instanceof DesignSubmitError
+          ? err.message
+          : 'Something went wrong saving your design. Please try again.'
+      );
+      setSaveStatus('error');
+    }
   }, []);
 
   return {
@@ -384,8 +400,10 @@ export function useCoasterCanvas(canvasElRef) {
     canRedo,
     lowResWarning,
     outOfBoundsWarning,
+    hasContent,
+    saveStatus,
+    saveError,
     referenceCode,
-    lastExport,
     addText,
     addImage,
     deleteSelected,
@@ -399,8 +417,7 @@ export function useCoasterCanvas(canvasElRef) {
     zoomReset,
     applyFontToSelection,
     applyFontSizeToSelection,
-    exportPNG,
-    exportSVG,
+    confirmDesign,
   };
 }
 

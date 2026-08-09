@@ -18,7 +18,7 @@ export default function App() {
         <h1>Vien Creations</h1>
         <span className="subtitle">
           Coaster designer · {COASTER_SIZE_MM}×{COASTER_SIZE_MM}mm · safe zone
-          inset {SAFE_ZONE_INSET_MM}mm · Phase 1
+          inset {SAFE_ZONE_INSET_MM}mm
         </span>
       </header>
       <div className="app-body">
@@ -59,10 +59,11 @@ export default function App() {
             clearCanvas={canvas.clearCanvas}
           />
           <ExportPanel
-            exportPNG={canvas.exportPNG}
-            exportSVG={canvas.exportSVG}
+            hasContent={canvas.hasContent}
+            saveStatus={canvas.saveStatus}
+            saveError={canvas.saveError}
             referenceCode={canvas.referenceCode}
-            lastExport={canvas.lastExport}
+            confirmDesign={canvas.confirmDesign}
           />
         </aside>
       </div>

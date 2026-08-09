@@ -1,3 +1,7 @@
+// Phase 1: single product. Sent to the backend as designs.product_type so
+// the schema is ready for more products later without a migration.
+export const PRODUCT_TYPE = 'coaster';
+
 // Physical dimensions of the coaster product (Phase 1: single square coaster)
 export const COASTER_SIZE_MM = 90;
 export const SAFE_ZONE_INSET_MM = 5;
