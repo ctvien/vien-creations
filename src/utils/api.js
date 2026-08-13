@@ -37,6 +37,10 @@ export async function submitDesign({ previewBlob, productionBlob, productType })
     throw new DesignSubmitError(message);
   }
 
-  const { reference_code: referenceCode } = await response.json();
-  return referenceCode;
+  const body = await response.json();
+  return {
+    referenceCode: body.reference_code,
+    previewImageUrl: body.preview_image_url,
+    productType: body.product_type,
+  };
 }
