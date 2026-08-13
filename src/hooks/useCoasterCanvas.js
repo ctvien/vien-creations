@@ -12,6 +12,7 @@ import {
   DEFAULT_FONT,
   DEFAULT_FONT_SIZE,
   PRODUCT_TYPE,
+  getFontWeight,
 } from '../constants';
 import { getEffectiveDPI } from '../utils/dpi';
 import { generatePreviewPNGBlob, generateProductionSVGBlob } from '../utils/exportCanvas';
@@ -241,6 +242,7 @@ export function useCoasterCanvas(canvasElRef) {
       originX: 'center',
       originY: 'center',
       fontFamily: font,
+      fontWeight: getFontWeight(font),
       fontSize,
       fill: '#2b2420',
       id: nextObjectId(),
@@ -355,7 +357,7 @@ export function useCoasterCanvas(canvasElRef) {
     const canvas = fabricRef.current;
     const active = canvas?.getActiveObject();
     if (!active || active.type !== 'i-text') return;
-    active.set('fontFamily', font);
+    active.set({ fontFamily: font, fontWeight: getFontWeight(font) });
     canvas.requestRenderAll();
     pushHistory();
   }, [pushHistory]);
