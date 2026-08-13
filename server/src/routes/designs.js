@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { MAX_UPLOAD_BYTES } from '../config.js';
+import { MAX_UPLOAD_BYTES, PUBLIC_BASE_URL } from '../config.js';
 import { generateUniqueReferenceCode, insertDesign, getDesignByCode } from '../designsRepo.js';
 import { saveDesignFiles } from '../storage.js';
 
@@ -13,6 +13,13 @@ const upload = multer({
 
 const ACCEPTED_PREVIEW_MIME = new Set(['image/png']);
 const ACCEPTED_PRODUCTION_MIME = new Set(['image/svg+xml', 'image/png']);
+
+// Absolute (cross-origin-safe) URL for a stored file — the WordPress
+// parent page loading the preview thumbnail is a different origin than
+// this server, so a path relative to this server isn't enough.
+function toPublicUrl(relativeStoragePath) {
+  return `${PUBLIC_BASE_URL}/storage/${relativeStoragePath}`;
+}
 
 router.post(
   '/',
@@ -45,7 +52,12 @@ router.post(
 
     insertDesign({ referenceCode, productType, previewPath, productionPath });
 
-    res.status(201).json({ reference_code: referenceCode });
+    res.status(201).json({
+      reference_code: referenceCode,
+      product_type: productType,
+      preview_image_url: toPublicUrl(previewPath),
+      production_url: toPublicUrl(productionPath),
+    });
   }
 );
 
@@ -60,8 +72,8 @@ router.get('/:code', (req, res) => {
     product_type: design.product_type,
     preview_path: design.preview_path,
     production_path: design.production_path,
-    preview_url: `/storage/${design.preview_path}`,
-    production_url: `/storage/${design.production_path}`,
+    preview_url: toPublicUrl(design.preview_path),
+    production_url: toPublicUrl(design.production_path),
     status: design.status,
     created_at: design.created_at,
   });

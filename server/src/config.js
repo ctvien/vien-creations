@@ -6,6 +6,14 @@ const SERVER_ROOT = path.resolve(__dirname, '..');
 
 export const PORT = process.env.PORT || 3001;
 
+// Public origin this server is reachable at. Used to build absolute file
+// URLs (e.g. preview_image_url) that get handed to a *different* origin —
+// the WordPress parent page embedding the configurator in an iframe — so a
+// path that's merely relative to this server isn't enough. Must be set via
+// env in any real deployment; the localhost default only works for local
+// dev where frontend and backend are on the same machine.
+export const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
+
 // Local filesystem storage. Fine for local dev / a single always-on host.
 // NOTE: if this ever moves to a serverless/container host with an
 // ephemeral filesystem (e.g. most default deploys of Vercel, Render's free

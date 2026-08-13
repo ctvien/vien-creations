@@ -16,6 +16,7 @@ import {
 import { getEffectiveDPI } from '../utils/dpi';
 import { generatePreviewPNGBlob, generateProductionSVGBlob } from '../utils/exportCanvas';
 import { submitDesign, DesignSubmitError } from '../utils/api';
+import { notifyParentDesignComplete, onParentInit } from '../utils/parentBridge';
 
 const SAFE_ZONE_PX = SAFE_ZONE_INSET_MM * SCREEN_PX_PER_MM;
 const SAFE_ZONE_SIZE_PX = CANVAS_SIZE_PX - SAFE_ZONE_PX * 2;
@@ -51,6 +52,14 @@ export function useCoasterCanvas(canvasElRef) {
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | success | error
   const [saveError, setSaveError] = useState(null);
   const [referenceCode, setReferenceCode] = useState(null);
+  // Which product to design. Only "coaster" exists so far — this just wires
+  // up the parent->iframe handoff ahead of more products landing.
+  const [productType, setProductType] = useState(PRODUCT_TYPE);
+
+  // The WordPress embed can tell us which product/template to load via
+  // postMessage; if that never arrives (standalone dev, or an embed that
+  // doesn't bother) we just stay on the PRODUCT_TYPE default.
+  useEffect(() => onParentInit(setProductType), []);
 
   const isDesignObject = (obj) => obj && !obj.isGuide;
 
@@ -376,13 +385,18 @@ export function useCoasterCanvas(canvasElRef) {
         backgroundRect: backgroundRef.current,
         safeZoneRect: safeZoneRef.current,
       });
-      const code = await submitDesign({
+      const saved = await submitDesign({
         previewBlob,
         productionBlob,
-        productType: PRODUCT_TYPE,
+        productType,
       });
-      setReferenceCode(code);
+      setReferenceCode(saved.referenceCode);
       setSaveStatus('success');
+      notifyParentDesignComplete({
+        referenceCode: saved.referenceCode,
+        previewImageUrl: saved.previewImageUrl,
+        productType: saved.productType || productType,
+      });
     } catch (err) {
       setSaveError(
         err instanceof DesignSubmitError
@@ -391,7 +405,7 @@ export function useCoasterCanvas(canvasElRef) {
       );
       setSaveStatus('error');
     }
-  }, []);
+  }, [productType]);
 
   return {
     selectedObject,

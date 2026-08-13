@@ -48,6 +48,16 @@ config is needed locally.
   then uploads both to the backend. Shows a loading state while saving, a
   large on-screen reference code on success, and a retry-friendly error
   banner on failure — the design is never lost if the save fails.
+- **Parent-page handoff** (`src/utils/parentBridge.js`): the app is meant
+  to run inside an iframe on the WooCommerce product page. On a successful
+  save it `postMessage`s `{ type: 'vien_design_complete', reference_code,
+  preview_image_url, product_type }` to `window.parent`; it also listens
+  for a `{ type: 'vien_init', product_type }` message from the parent to
+  pick which product/template to load (defaults to `coaster` if none
+  arrives — there's only one product so far anyway). No-ops if the app
+  isn't actually embedded (`window.parent === window`). The target origin
+  for the outgoing message defaults to `*`; set `VITE_PARENT_ORIGIN` at
+  build time to the real WordPress origin before going live.
 
 ### Backend (`/server`)
 - Express + `better-sqlite3`, files stored on local disk under
@@ -56,9 +66,15 @@ config is needed locally.
 - `POST /api/designs` — multipart upload (`preview`, `production` files +
   `product_type` field). Generates a 6-character reference code (checked
   against the DB for collisions, regenerating if needed), saves the files,
-  inserts a `designs` row, returns `{ reference_code }`.
-- `GET /api/designs/:code` — returns the stored record (paths + metadata).
-  Not used by the frontend yet — this is for the Phase 4 review workflow.
+  inserts a `designs` row, returns `{ reference_code, product_type,
+  preview_image_url, production_url }`. The `_url` fields are absolute
+  (built from `PUBLIC_BASE_URL`, defaults to `http://localhost:3001`) since
+  they're meant to be loaded from a different origin — the WordPress page
+  embedding this app in an iframe. Set `PUBLIC_BASE_URL` in any real
+  deployment.
+- `GET /api/designs/:code` — returns the stored record (paths + absolute
+  URLs + metadata). Not used by the frontend yet — this is for the Phase 4
+  review workflow.
 - `designs` table: `reference_code` (PK), `product_type`, `preview_path`,
   `production_path`, `status` (defaults `pending_review`), `created_at`.
 - **Storage is local disk**, fine for a single always-on dev/host box. If
