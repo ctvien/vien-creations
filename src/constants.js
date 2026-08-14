@@ -1,16 +1,23 @@
-// Phase 1: single product. Sent to the backend as designs.product_type so
-// the schema is ready for more products later without a migration.
-export const PRODUCT_TYPE = 'coaster';
-
-// Physical dimensions of the coaster product (Phase 1: single square coaster)
-export const COASTER_SIZE_MM = 90;
-export const SAFE_ZONE_INSET_MM = 5;
+// Phase 3+: which product to render — physical size, safe-zone inset, and
+// background photo — comes from the WordPress parent page via a vien_init
+// postMessage (see useProductConfig), since the plugin now supports more
+// than one product. This is the fallback used for standalone dev/testing
+// when no parent ever sends one, and the shape every real vien_init
+// payload gets normalized into.
+export const DEFAULT_PRODUCT_CONFIG = {
+  productType: 'coaster',
+  productLabel: 'Coaster',
+  widthMm: 90,
+  heightMm: 90,
+  safeZoneInsetMm: 5,
+  backgroundImageUrl: null, // null -> fall back to the built-in wood gradient
+};
 
 // On-screen rendering scale. The Fabric canvas is built at this resolution
 // (px per mm) for comfortable editing; high-res export uses a multiplier
-// on top of this, so the interactive canvas never needs to be huge.
+// on top of this, so the interactive canvas never needs to be huge. Applies
+// uniformly regardless of which product is loaded.
 export const SCREEN_PX_PER_MM = 8;
-export const CANVAS_SIZE_PX = COASTER_SIZE_MM * SCREEN_PX_PER_MM; // 720px
 
 // Export quality target for the customer-preview PNG.
 export const EXPORT_DPI = 300;

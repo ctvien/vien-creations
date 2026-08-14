@@ -30,14 +30,17 @@ export function notifyParentDesignComplete({ referenceCode, previewImageUrl, pro
 }
 
 // Subscribes to an init message from the parent page telling us which
-// product to load. Returns an unsubscribe function. Ignores anything that
-// isn't a well-formed vien_init message so we don't react to unrelated
-// postMessage traffic on the page (analytics scripts, browser extensions).
+// product to load and how it's configured (physical size, safe zone,
+// background photo). Returns an unsubscribe function. Ignores anything
+// that isn't a well-formed vien_init message so we don't react to
+// unrelated postMessage traffic on the page (analytics scripts, browser
+// extensions). Hands the callback the raw message data — useProductConfig
+// owns interpreting/defaulting the individual fields.
 export function onParentInit(callback) {
   function handleMessage(event) {
     const data = event.data;
     if (!data || data.type !== INIT_TYPE || typeof data.product_type !== 'string') return;
-    callback(data.product_type);
+    callback(data);
   }
   window.addEventListener('message', handleMessage);
   return () => window.removeEventListener('message', handleMessage);

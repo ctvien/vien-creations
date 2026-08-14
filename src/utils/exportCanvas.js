@@ -1,6 +1,11 @@
-import { COASTER_SIZE_MM, MM_PER_INCH, EXPORT_DPI, CANVAS_SIZE_PX } from '../constants';
+import { MM_PER_INCH, EXPORT_DPI, SCREEN_PX_PER_MM } from '../constants';
 
-const PNG_MULTIPLIER = (COASTER_SIZE_MM / MM_PER_INCH) * EXPORT_DPI / CANVAS_SIZE_PX;
+// Ratio of export pixels to on-screen canvas pixels, at whatever physical
+// size the canvas represents. This works out to be independent of the
+// product's actual width/height in mm — it only depends on the two scale
+// constants (target print DPI vs. on-screen px-per-mm) — so, unlike in
+// Phase 1, this doesn't need to be recomputed per product.
+const PNG_MULTIPLIER = EXPORT_DPI / (MM_PER_INCH * SCREEN_PX_PER_MM);
 
 // Runs `fn` with the given objects temporarily hidden from the canvas, then
 // restores their previous visibility. Safe for raster export (toDataURL) —
@@ -74,12 +79,15 @@ export function generatePreviewPNGBlob(canvas, { safeZoneRect }) {
 // vector paths (via SVG <text> referencing the chosen web font, or as
 // outlined paths if the target software converts them), so a text-only
 // design is fully production-ready straight from this export.
-export function generateProductionSVGBlob(canvas, { backgroundRect, safeZoneRect }) {
+export function generateProductionSVGBlob(
+  canvas,
+  { backgroundRect, safeZoneRect, widthMm, heightMm, canvasWidthPx, canvasHeightPx }
+) {
   const svg = withRemovedObjects(canvas, [backgroundRect, safeZoneRect], () =>
     canvas.toSVG({
-      width: `${COASTER_SIZE_MM}mm`,
-      height: `${COASTER_SIZE_MM}mm`,
-      viewBox: { x: 0, y: 0, width: CANVAS_SIZE_PX, height: CANVAS_SIZE_PX },
+      width: `${widthMm}mm`,
+      height: `${heightMm}mm`,
+      viewBox: { x: 0, y: 0, width: canvasWidthPx, height: canvasHeightPx },
     })
   );
   return new Blob([svg], { type: 'image/svg+xml' });
