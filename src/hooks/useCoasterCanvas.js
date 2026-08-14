@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Canvas, IText, FabricImage, Rect, Gradient, filters, util } from 'fabric';
 import {
-  SAFE_ZONE_INSET_MM,
   SCREEN_PX_PER_MM,
-  CANVAS_SIZE_PX,
   MIN_SAFE_DPI,
   ZOOM_MIN,
   ZOOM_MAX,
@@ -11,37 +9,33 @@ import {
   HISTORY_LIMIT,
   DEFAULT_FONT,
   DEFAULT_FONT_SIZE,
-  PRODUCT_TYPE,
   getFontWeight,
 } from '../constants';
 import { getEffectiveDPI } from '../utils/dpi';
 import { generatePreviewPNGBlob, generateProductionSVGBlob } from '../utils/exportCanvas';
 import { submitDesign, DesignSubmitError } from '../utils/api';
-import { notifyParentDesignComplete, onParentInit } from '../utils/parentBridge';
-
-const SAFE_ZONE_PX = SAFE_ZONE_INSET_MM * SCREEN_PX_PER_MM;
-const SAFE_ZONE_SIZE_PX = CANVAS_SIZE_PX - SAFE_ZONE_PX * 2;
+import { notifyParentDesignComplete } from '../utils/parentBridge';
 
 let objectIdCounter = 0;
 const nextObjectId = () => `obj_${Date.now()}_${objectIdCounter++}`;
 
-// Is `obj`'s bounding box fully contained within the engraving-safe zone?
-function isWithinSafeZone(obj) {
-  const box = obj.getBoundingRect(true);
-  return (
-    box.left >= SAFE_ZONE_PX &&
-    box.top >= SAFE_ZONE_PX &&
-    box.left + box.width <= SAFE_ZONE_PX + SAFE_ZONE_SIZE_PX &&
-    box.top + box.height <= SAFE_ZONE_PX + SAFE_ZONE_SIZE_PX
-  );
-}
-
-export function useCoasterCanvas(canvasElRef) {
+// productConfig is resolved once (by useProductConfig) before this hook is
+// ever mounted — see App.jsx, which holds off rendering the canvas until
+// then — so it's treated as stable for this hook instance's whole
+// lifetime. Physical size / safe-zone inset / background photo all come
+// from it, since which product this is can now vary between embeds.
+export function useCoasterCanvas(canvasElRef, productConfig) {
   const fabricRef = useRef(null);
   const backgroundRef = useRef(null);
   const safeZoneRef = useRef(null);
   const historyRef = useRef({ stack: [], index: -1 });
   const restoringRef = useRef(false);
+
+  const canvasWidthPx = productConfig.widthMm * SCREEN_PX_PER_MM;
+  const canvasHeightPx = productConfig.heightMm * SCREEN_PX_PER_MM;
+  const safeZonePx = productConfig.safeZoneInsetMm * SCREEN_PX_PER_MM;
+  const safeZoneWidthPx = canvasWidthPx - safeZonePx * 2;
+  const safeZoneHeightPx = canvasHeightPx - safeZonePx * 2;
 
   const [selectedObject, setSelectedObject] = useState(null);
   const [zoom, setZoom] = useState(1);
@@ -53,16 +47,22 @@ export function useCoasterCanvas(canvasElRef) {
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | success | error
   const [saveError, setSaveError] = useState(null);
   const [referenceCode, setReferenceCode] = useState(null);
-  // Which product to design. Only "coaster" exists so far — this just wires
-  // up the parent->iframe handoff ahead of more products landing.
-  const [productType, setProductType] = useState(PRODUCT_TYPE);
-
-  // The WordPress embed can tell us which product/template to load via
-  // postMessage; if that never arrives (standalone dev, or an embed that
-  // doesn't bother) we just stay on the PRODUCT_TYPE default.
-  useEffect(() => onParentInit(setProductType), []);
 
   const isDesignObject = (obj) => obj && !obj.isGuide;
+
+  // Is `obj`'s bounding box fully contained within the engraving-safe zone?
+  const isWithinSafeZone = useCallback(
+    (obj) => {
+      const box = obj.getBoundingRect(true);
+      return (
+        box.left >= safeZonePx &&
+        box.top >= safeZonePx &&
+        box.left + box.width <= safeZonePx + safeZoneWidthPx &&
+        box.top + box.height <= safeZonePx + safeZoneHeightPx
+      );
+    },
+    [safeZonePx, safeZoneWidthPx, safeZoneHeightPx]
+  );
 
   const refreshWarnings = useCallback(() => {
     const canvas = fabricRef.current;
@@ -82,7 +82,7 @@ export function useCoasterCanvas(canvasElRef) {
       });
       canvas.requestRenderAll();
     }
-  }, []);
+  }, [isWithinSafeZone]);
 
   const updateSelectionState = useCallback(() => {
     const canvas = fabricRef.current;
@@ -152,23 +152,26 @@ export function useCoasterCanvas(canvasElRef) {
     if (!canvasElRef.current) return undefined;
 
     const canvas = new Canvas(canvasElRef.current, {
-      width: CANVAS_SIZE_PX,
-      height: CANVAS_SIZE_PX,
+      width: canvasWidthPx,
+      height: canvasHeightPx,
       backgroundColor: 'transparent',
       preserveObjectStacking: true,
     });
     fabricRef.current = canvas;
 
-    // Product mockup background: light wood/slate tone so the canvas reads
-    // as a coaster preview rather than a blank white square.
+    // Product mockup background. Starts as a generic wood-tone gradient
+    // placeholder so the canvas never shows a blank white square; if this
+    // product has a real background photo configured (set by the shop
+    // owner in the WordPress plugin, not the customer), it's swapped in
+    // asynchronously below once it finishes loading.
     const background = new Rect({
       left: 0,
       top: 0,
       originX: 'left',
       originY: 'top',
-      width: CANVAS_SIZE_PX,
-      height: CANVAS_SIZE_PX,
-      fill: makeWoodGradient(),
+      width: canvasWidthPx,
+      height: canvasHeightPx,
+      fill: makeWoodGradient(canvasWidthPx, canvasHeightPx),
       selectable: false,
       evented: false,
       excludeFromExport: false,
@@ -178,12 +181,12 @@ export function useCoasterCanvas(canvasElRef) {
     backgroundRef.current = background;
 
     const safeZone = new Rect({
-      left: SAFE_ZONE_PX,
-      top: SAFE_ZONE_PX,
+      left: safeZonePx,
+      top: safeZonePx,
       originX: 'left',
       originY: 'top',
-      width: SAFE_ZONE_SIZE_PX,
-      height: SAFE_ZONE_SIZE_PX,
+      width: safeZoneWidthPx,
+      height: safeZoneHeightPx,
       fill: 'transparent',
       stroke: 'rgba(255,255,255,0.75)',
       strokeWidth: 1.5,
@@ -197,6 +200,31 @@ export function useCoasterCanvas(canvasElRef) {
 
     canvas.add(background, safeZone);
     canvas.requestRenderAll();
+
+    let cancelled = false;
+    if (productConfig.backgroundImageUrl) {
+      loadCoverBackgroundImage(productConfig.backgroundImageUrl, canvasWidthPx, canvasHeightPx)
+        .then((img) => {
+          // Component unmounted, or a newer effect run already tore this
+          // canvas down, before the image finished loading.
+          if (cancelled || fabricRef.current !== canvas) return;
+          img.set({
+            selectable: false,
+            evented: false,
+            excludeFromExport: false,
+            isGuide: true,
+          });
+          const index = canvas.getObjects().indexOf(background);
+          canvas.remove(background);
+          canvas.insertAt(index, img);
+          backgroundRef.current = img;
+          canvas.requestRenderAll();
+        })
+        .catch(() => {
+          // Photo failed to load (404, network, CORS) — keep the gradient
+          // placeholder rather than leaving a broken/blank canvas.
+        });
+    }
 
     const onCommit = () => {
       pushHistory();
@@ -225,9 +253,15 @@ export function useCoasterCanvas(canvasElRef) {
     setCanRedo(false);
 
     return () => {
+      cancelled = true;
       canvas.dispose();
       fabricRef.current = null;
     };
+    // productConfig is resolved once before this hook is mounted (see the
+    // module comment above) and never changes for this instance's
+    // lifetime, so it's intentionally left out of the dep array — this
+    // effect is meant to run exactly once, like the original single-product
+    // version did.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvasElRef]);
 
@@ -237,8 +271,8 @@ export function useCoasterCanvas(canvasElRef) {
     const canvas = fabricRef.current;
     if (!canvas || !text.trim()) return;
     const textObj = new IText(text, {
-      left: CANVAS_SIZE_PX / 2,
-      top: CANVAS_SIZE_PX / 2,
+      left: canvasWidthPx / 2,
+      top: canvasHeightPx / 2,
       originX: 'center',
       originY: 'center',
       fontFamily: font,
@@ -251,7 +285,7 @@ export function useCoasterCanvas(canvasElRef) {
     canvas.add(textObj);
     canvas.setActiveObject(textObj);
     canvas.requestRenderAll();
-  }, []);
+  }, [canvasWidthPx, canvasHeightPx]);
 
   const addImage = useCallback(async (file) => {
     const canvas = fabricRef.current;
@@ -272,11 +306,11 @@ export function useCoasterCanvas(canvasElRef) {
     img.applyFilters();
 
     // Fit the image inside the safe zone on drop, preserving aspect ratio.
-    const maxDim = SAFE_ZONE_SIZE_PX * 0.8;
+    const maxDim = Math.min(safeZoneWidthPx, safeZoneHeightPx) * 0.8;
     const scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
     img.set({
-      left: CANVAS_SIZE_PX / 2,
-      top: CANVAS_SIZE_PX / 2,
+      left: canvasWidthPx / 2,
+      top: canvasHeightPx / 2,
       originX: 'center',
       originY: 'center',
       scaleX: scale,
@@ -288,7 +322,7 @@ export function useCoasterCanvas(canvasElRef) {
     canvas.add(img);
     canvas.setActiveObject(img);
     canvas.requestRenderAll();
-  }, []);
+  }, [canvasWidthPx, canvasHeightPx, safeZoneWidthPx, safeZoneHeightPx]);
 
   const deleteSelected = useCallback(() => {
     const canvas = fabricRef.current;
@@ -343,11 +377,11 @@ export function useCoasterCanvas(canvasElRef) {
     if (!canvas) return;
     const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
     canvas.setDimensions(
-      { width: CANVAS_SIZE_PX * clamped, height: CANVAS_SIZE_PX * clamped },
+      { width: canvasWidthPx * clamped, height: canvasHeightPx * clamped },
       { cssOnly: true }
     );
     setZoom(clamped);
-  }, []);
+  }, [canvasWidthPx, canvasHeightPx]);
 
   const zoomIn = useCallback(() => setZoomClamped(zoom + ZOOM_STEP), [zoom, setZoomClamped]);
   const zoomOut = useCallback(() => setZoomClamped(zoom - ZOOM_STEP), [zoom, setZoomClamped]);
@@ -386,18 +420,22 @@ export function useCoasterCanvas(canvasElRef) {
       const productionBlob = generateProductionSVGBlob(canvas, {
         backgroundRect: backgroundRef.current,
         safeZoneRect: safeZoneRef.current,
+        widthMm: productConfig.widthMm,
+        heightMm: productConfig.heightMm,
+        canvasWidthPx,
+        canvasHeightPx,
       });
       const saved = await submitDesign({
         previewBlob,
         productionBlob,
-        productType,
+        productType: productConfig.productType,
       });
       setReferenceCode(saved.referenceCode);
       setSaveStatus('success');
       notifyParentDesignComplete({
         referenceCode: saved.referenceCode,
         previewImageUrl: saved.previewImageUrl,
-        productType: saved.productType || productType,
+        productType: saved.productType || productConfig.productType,
       });
     } catch (err) {
       setSaveError(
@@ -407,7 +445,7 @@ export function useCoasterCanvas(canvasElRef) {
       );
       setSaveStatus('error');
     }
-  }, [productType]);
+  }, [productConfig.productType, productConfig.widthMm, productConfig.heightMm, canvasWidthPx, canvasHeightPx]);
 
   return {
     selectedObject,
@@ -437,14 +475,36 @@ export function useCoasterCanvas(canvasElRef) {
   };
 }
 
-function makeWoodGradient() {
+function makeWoodGradient(widthPx, heightPx) {
   return new Gradient({
     type: 'linear',
-    coords: { x1: 0, y1: 0, x2: CANVAS_SIZE_PX, y2: CANVAS_SIZE_PX },
+    coords: { x1: 0, y1: 0, x2: widthPx, y2: heightPx },
     colorStops: [
       { offset: 0, color: '#c8ad88' },
       { offset: 0.5, color: '#b89a72' },
       { offset: 1, color: '#a68a63' },
     ],
   });
+}
+
+// Loads a shop-configured product photo and scales it to fully cover the
+// canvas (like CSS background-size: cover) so it reads as an edge-to-edge
+// product mockup regardless of the photo's own aspect ratio. crossOrigin
+// is required here: the photo is served from the WordPress site, a
+// different origin than this app, and without it the canvas would be
+// "tainted" and every export (toDataURL/toSVG) would start throwing —
+// this only works if that origin actually sends CORS headers for the
+// image (see the WordPress plugin's background-image proxy endpoint).
+async function loadCoverBackgroundImage(url, targetWidthPx, targetHeightPx) {
+  const img = await FabricImage.fromURL(url, { crossOrigin: 'anonymous' });
+  const scale = Math.max(targetWidthPx / img.width, targetHeightPx / img.height);
+  img.set({
+    left: targetWidthPx / 2,
+    top: targetHeightPx / 2,
+    originX: 'center',
+    originY: 'center',
+    scaleX: scale,
+    scaleY: scale,
+  });
+  return img;
 }

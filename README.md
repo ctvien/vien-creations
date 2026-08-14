@@ -51,13 +51,36 @@ config is needed locally.
 - **Parent-page handoff** (`src/utils/parentBridge.js`): the app is meant
   to run inside an iframe on the WooCommerce product page. On a successful
   save it `postMessage`s `{ type: 'vien_design_complete', reference_code,
-  preview_image_url, product_type }` to `window.parent`; it also listens
-  for a `{ type: 'vien_init', product_type }` message from the parent to
-  pick which product/template to load (defaults to `coaster` if none
-  arrives — there's only one product so far anyway). No-ops if the app
+  preview_image_url, product_type }` to `window.parent`. No-ops if the app
   isn't actually embedded (`window.parent === window`). The target origin
   for the outgoing message defaults to `*`; set `VITE_PARENT_ORIGIN` at
   build time to the real WordPress origin before going live.
+- **Per-product config** (`src/hooks/useProductConfig.js`): which product
+  this instance of the configurator renders — physical size, safe-zone
+  inset, and a real background photo instead of the generic wood-tone
+  gradient — comes from the parent page via a `vien_init` postMessage sent
+  on iframe load:
+  ```js
+  {
+    type: 'vien_init',
+    product_type: 'coaster',       // slug, sent back to the backend as designs.product_type
+    product_label: 'Coaster',      // optional, shown in the header; falls back to a capitalized product_type
+    width_mm: 90,
+    height_mm: 90,                 // independent of width — non-square products are supported
+    safe_zone_inset_mm: 5,
+    background_image_url: null,    // omit/null to fall back to the built-in gradient
+  }
+  ```
+  The app waits up to 600ms for this message before falling back to
+  `DEFAULT_PRODUCT_CONFIG` (the original 90×90mm coaster with no photo) —
+  long enough for a real embed, short enough that standalone dev without
+  any parent page still works. The background photo is loaded with
+  `crossOrigin: 'anonymous'` and scaled to cover the canvas; **the URL
+  must respond with `Access-Control-Allow-Origin`**, or the browser blocks
+  the load entirely (falls back to the gradient) — see the WordPress
+  plugin's background-image proxy endpoint, which exists specifically
+  because a plain `wp-content/uploads` URL won't have that header by
+  default.
 
 ### Backend (`/server`)
 - Express + `better-sqlite3`, files stored on local disk under
